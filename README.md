@@ -1,2 +1,3 @@
 # R
-R projects that I've previously done.
+I've put some R projects that I've previously done here. 
+
