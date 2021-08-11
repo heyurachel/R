@@ -1,0 +1,313 @@
+---
+title: "Untitled"
+output: html_document
+---
+```{r setup, include=TRUE, cache = FALSE}
+knitr::opts_chunk$set(error = TRUE)
+library(ggplot2)
+library(scales)
+library(dplyr)
+library(caret)
+library(nnet)
+library(eeptools)
+```
+
+## Data Description
+The data is the HR Dataset provided at (https://rpubs.com/rhuebner/hrd_cb_v14). The dataset has data on 311 employees and 36 variables. Here are the variables that will be extracted from the data and used:
+
+1. **MarriedID:** Marriage status of employee (1 for married, 0 for not married).
+2. **MaritalStatusID:** Describes whether employee is divorced, single, widowed, and etc. Given as a number.
+3. **GenderID:** 1 if male, 0 if female.
+4. **EmpStatusID:** Number matching with whether the employee is still employed
+5. **DeptID:** Department ID code corresponding to which department the employee works in.
+6. **PerfScoreID:** Number matching performance score (range from 1 to 4, with highest being 4).
+7. **Salary:** Salary in USD.
+8. **DOB:** Date of birth of employee.
+9. **Sex:** Sex of employee, Male or Female.
+10. **Department:** Department where employee works
+11. **RecruitmentSource:** The name of recruitment source for employee.
+12. **PerformanceScore:** Performance Score as text.
+13. **EngagementSurvey:** Results for last engagement survey. Score between 1 and 5, with 5 being the highest score and 1 being the lowest score (continuous variable).
+14. **EmpSatisfaction:** Satisfaction score of employee, between 1 and 5, where 5 is the highest score.
+15. **SpecialProjectsCount:** Number of special projects employee has worked on in the past 6 months.
+16. **DaysLateLast30:** Count of how many times employee was late last 30 days, integer variable.
+17. **Absences:** Number of absences for employee, integer variable.
+
+Some of these variables are redundant, like Marriage and Marriage ID, but these variables will be kept for plotting purposes.
+
+```{r load data, echo=TRUE}
+data = read.csv('HRDataset_v14.csv')
+```
+
+## Visualizations and Statistical Tests
+Let's make some visualizations. We'll start by visualizing the Sex of employees in a pie chart.
+```{r pie chart gender, echo=TRUE}
+num_female = sum(data['Sex'] == 'F')
+num_male = sum(data['Sex'] == 'M ')
+total = num_female+num_male
+pie_data = data.frame("gender" = c('Male', 'Female'), "value" = c(num_male/total, num_female/total))
+
+
+pie = ggplot(pie_data, aes(x="", y=value, fill=gender)) + geom_bar(stat="identity", width=1)
+
+pie = pie + coord_polar("y", start=0) + geom_text(aes(label = paste0(round(value*100), "%")), position = position_stack(vjust = 0.5))
+ 
+# Add color scale (hex colors)
+pie = pie + scale_fill_manual(values=c("#55DDE0", "#33658A", "#2F4858", "#F6AE2D", "#F26419", "#999999")) 
+ 
+# Remove labels and add title
+pie = pie + labs(x = NULL, y = NULL, fill = NULL, title = "Gender Distribution")
+ 
+# Tidy up the theme
+pie = pie + theme_classic() + theme(axis.line = element_blank(),
+          axis.text = element_blank(),
+          axis.ticks = element_blank(),
+          plot.title = element_text(hjust = 0.5, color = "#666666"))
+pie
+```
+
+It's interesting that there are more female employees in this dataset. Let's also look at the distribution of performance scores by gender to see if there is any discrepancies. We'll do this using bar charts by calculating the percentage of male individuals with scores 1, 2, 3, and 4, and then do the same with female individuals also.
+
+```{r performance scores, echo=TRUE}
+aggregated_data = data %>% group_by(PerformanceScore,Sex) %>% count()
+num_female = sum(data['Sex'] == 'F')
+num_male = sum(data['Sex'] == 'M ')
+
+#scale everything to percentages in each row of 'n'
+for (x in 1:8){
+  if(x %% 2  == 0){
+    aggregated_data[x,'n'] = round(aggregated_data[x,'n']/num_male * 100)
+  }
+  if(x %% 2 != 0) {
+    aggregated_data[x,'n'] = round(aggregated_data[x,'n']/num_female * 100)
+  }
+}
+
+
+barplot =  ggplot(aggregated_data, aes(x=PerformanceScore, weight = n)) + geom_bar(aes(fill =Sex), position = 'dodge') + labs(x = 'Performance Score', y = 'Percentage Recieving Score')
+
+barplot
+
+```
+
+From the plot, the distribution is almost the same. It seems like a higher percentage of males receive lower performance scores, but they also receive a higher proportion of the highest score.
+
+We can check if there is any correlation between the variables. Since they are both categorical, we will use chi-squared with a significance level of $\alpha = 0.05$.
+
+**Null Hypothesis**: Gender and performance are independent. 
+
+**Alternative Hypothesis**: Gender and performance are not independent.
+
+We will first make a contingency table with gender in the rows and performance score in the columns. 
+```{r, chi squared for performance score and gender, echo = TRUE}
+tab = table(data$Sex, data$PerformanceScore)
+tab
+
+chisq.test(tab, simulate.p.value = TRUE)
+
+``` 
+Since our p-value is very high, we cannot reject the null hypothesis. This means we don't have enough information to conclude that the two variables are dependent, so we'll assume that they are independent.
+
+Another thing to check is how employee satisfaction vary among Sex. Let's make a similar plot to above.
+```{r engagement scores, echo=TRUE}
+aggregated_data = data %>% group_by(EmpSatisfaction,Sex) %>% count()
+num_female = sum(data['Sex'] == 'F')
+num_male = sum(data['Sex'] == 'M ')
+
+#scale everything to percentages in each row of 'n'
+for (x in 1:9){
+  if(x %% 2  == 0 || x== 2){
+    aggregated_data[x,'n'] = round(aggregated_data[x,'n']/num_female * 100)
+  }
+  if(x %% 2 != 0 && x != 1) {
+    aggregated_data[x,'n'] = round(aggregated_data[x,'n']/num_male * 100)
+  }
+}
+
+
+barplot =  ggplot(aggregated_data, aes(x=EmpSatisfaction, weight = n)) + geom_bar(aes(fill =Sex), position = 'dodge') + labs(x = 'Employee Satisfaction Survey', y = 'Percentage')
+
+barplot
+
+```
+
+It seems like no Male employees were extremely unsatisfied since the percentage than answered "1" was 0%, but almost double the male employees "2" compared to female employees. From looking at the graph, it seems like Male employee's are more likely to be "Neutral" compared to female employees. 
+
+We can test independence again using chi squared since both variables are categorical.
+
+**Null Hypothesis**: Gender and employee satisfaction are independent. 
+
+**Alternative Hypothesis**: Gender and employee satisfaction are not independent.
+
+We will first make a contingency table with gender in the rows and employee satisfaction in the columns. 
+```{r, chi squared for gender and employee satisfaction, echo = TRUE}
+tab = table(data$Sex, data$EmpSatisfaction)
+tab
+
+chisq.test(tab, simulate.p.value = TRUE)
+```
+Like before, we don't have enough information to reject the null hypothesis. This suggests that the two variables are not necessarily dependent.
+
+
+Since we've brought up employee satisfaction, another thing to consider is employee engagement. Here is a histogram of employee engagement:
+```{r, echo = TRUE}
+ggplot(data, aes(x=EngagementSurvey)) + geom_histogram(binwidth = 0.5, fill = 'blue', col = 'red')
+```
+
+From looking at this plot, it seems like most employees are mostly engaged. Irrespective of gender, one might ask if there is a relation between employee engagement and performance. Let's a violin plot to check. The thicker the shape, the more often the performance score is seen.
+```{r, echo = TRUE}
+ggplot(data, aes(x=PerformanceScore, y=EngagementSurvey, fill=PerformanceScore)) + geom_violin() + geom_jitter(width=0.1,alpha=0.2)+ labs(x = 'Performance', y = 'Engagement Score')
+```
+
+From looking at the plot, employees that performed better usually hand higher engagement scores. We can now check if there is actually a correlation between the performance score and the satisfaction results. Since both variables are categorical, the chi-squared test will be used.
+
+**Null Hypothesis**: Performance and satisfaction results are independent. 
+
+**Alternative Hypothesis**: Performance and satisfaction results are not independent.
+
+The significance level is $\alpha = 0.05$.
+```{r, chi squared for satisfaction and performance, echo = TRUE}
+tab = table(data$PerfScoreID, data$EmpSatisfaction)
+tab
+
+chisq.test(tab, simulate.p.value = TRUE)
+
+```
+From the result above, we may reject the null hypothesis and conclude that the two variables aren't necessarily independent.
+
+Now, the same type of analysis will be performed on performance score and empirical satisfaction. A boxplot is given below.
+```{r, echo = TRUE}
+ggplot(data, aes(x=PerformanceScore, y=EmpSatisfaction, fill=PerformanceScore)) + geom_boxplot() + geom_jitter(width=0.1,alpha=0.2) + labs(x = 'Performance', y = 'Satisfaction')
+```
+Let's check a few more variables, like DaysLateLast30, Absences, SpecialProjectsCount, and Salary. Some boxplots/violinplots are given below. 
+```{r, more plots, Echo = TRUE}
+ggplot(data, aes(x=PerformanceScore, y=DaysLateLast30, fill=PerformanceScore)) + geom_boxplot() + geom_jitter(width=0.1,alpha=0.2) + labs(x = 'Performance', y = 'Tardies over Past Month')
+
+ggplot(data, aes(x=PerformanceScore, y=Absences, fill=PerformanceScore)) + geom_boxplot() + geom_jitter(width=0.1,alpha=0.2) + labs(x = 'Performance', y = 'Absences')
+
+ggplot(data, aes(x=PerformanceScore, y=SpecialProjectsCount, fill=PerformanceScore)) + geom_violin() + geom_jitter(width=0.1,alpha=0.2) + labs(x = 'Performance', y = 'Special Projects Count')
+
+ggplot(data, aes(x=PerformanceScore, y=Salary, fill=PerformanceScore)) + geom_violin() + geom_jitter(width=0.1,alpha=0.2) + labs(x = 'Performance', y = 'Salary')
+```
+
+From the plot, it looks like absences and tardies are negatively correlated, but a majority of people don't take on special projects. Since satisfaction is a continuous variable, the one way ANOVA test will be used for each variable each of the variables independently. 
+
+**Null Hypothesis**: Performance is independent ofengagement scores, tardies, absences, salary, and special project count. 
+
+**Alternative Hypothesis**: Performance is not independent of the variables able.
+
+Again, the significance level is $\alpha=  0.05$.
+```{r engagement, echo = TRUE}
+one.way = aov(EngagementSurvey~PerformanceScore, data = data)
+summary(one.way)
+```
+```{r projects, echo = TRUE}
+one.way = aov(SpecialProjectsCount~PerformanceScore, data = data)
+summary(one.way)
+```
+```{r absences, echo = TRUE}
+one.way = aov(Absences~PerformanceScore, data = data)
+summary(one.way)
+```
+```{r daylate, echo = TRUE}
+one.way = aov(DaysLateLast30~PerformanceScore, data = data)
+summary(one.way)
+```
+```{r salary, echo = TRUE}
+one.way = aov(Salary~PerformanceScore, data = data)
+summary(one.way)
+```
+
+From the results, since the $p$-value is less than 2e-16 for DaysLateLAst30 and Engagement scores, this suggests that these variables are not necessarily independent.
+
+
+It would also be nice to check if there is a relation between department and performance score. Since everything is categorical, we will the use chi-squared test again. First, let's visualize everything using a violin plot again.
+
+```{r, department and performance}
+ggplot(data, aes(x=Department, y=EmpSatisfaction, fill=Department)) + geom_boxplot(position =  'dodge') + labs(x = 'Department', y = 'Performance Score') + geom_jitter(width=0.1,alpha=0.2)
+```
+
+From looking at plots, it loks like the performance scores are the same for each department. What about the salaries?
+
+```{r, department and salary}
+ggplot(data, aes(x=Department, y=Salary, fill=Sex)) + geom_boxplot() + coord_flip() + labs(x = 'Department', y = 'Salary') 
+```
+As expected, it looks like where you work does matter. The mean salary seems to be highest when you're an executive, and software engineers and IT employees also make quite a bit. There also seems to be some bias in pay between genders.
+```{r, age distribution}
+
+birth_year = strtoi(stringr::str_sub(data$DOB,-2,-1))
+age = data.frame("empAge"=abs(2021-birth_year-1900))
+ggplot(age,aes(x=empAge))+ geom_histogram(bins = 10, fill = 'red', col = 'blue') +labs(x = 'Age', y = 'Frequency')
+
+```
+
+The age of most workers seems to be around 30 to 50 years old. Now, one can ask, how does age relate to performance? Let's replace the DOB variable with the approximate age.
+```{r, age vs performance and age vs engagement and satisfaction, echo = TRUE}
+data['DOB'] = age
+ggplot(data, aes(x=PerformanceScore, y=DOB, fill=Sex)) + geom_boxplot() + labs(x = 'Department', y = 'Age')
+
+```
+
+One last test we could run is a ANOVA to check if age and performance score are related. The signfigance level will be the same. 
+
+**Null Hypothesis**: Age and performance rating are independent.
+
+**Alternative Hypothesis**: Age and peroformance rating aren't independent.
+
+
+```{r age test, echo = TRUE}
+one.way = aov(DOB~PerformanceScore, data = data)
+summary(one.way)
+```
+It looks like we don't have enough information to reject, so this means that we cannot say that age and performance rating aren't independent.
+
+
+## Logistic Regression
+The last thing we'll do for this data, is run a logistic regression to try to predict employee performance based on other factors in the data. The variables used will be
+1. **MarriedID**,
+2. **GenderID**,
+3. **DeptID**.
+4. **Salary**,
+5. **Age**,
+6. **EngagementSurvey**,
+7. **EmpSatisfaction:**,
+8. **SpecialProjectsCount:**,
+9. **DaysLateLast30:**,
+10. **Absences:**. 
+We will take 70% of the data to try to learn a model and then use the other 30% to try to make predictions and see if our predictions are correct.
+```{r, log regression, echo = TRUE}
+#split data into train and test 
+index = createDataPartition(data$PerfScoreID, p = .70, list = FALSE)
+train = data[index,]
+test = data[-index,]
+
+#use logisitic regression
+multinom_model = multinom(PerfScoreID ~ MarriedID + GenderID + DeptID + Salary + DOB + EngagementSurvey + EmpSatisfaction + SpecialProjectsCount + DaysLateLast30+Absences, data = data)
+
+
+#summary
+summary(multinom_model)
+```
+
+Now let's use this to make predictions on the training set.
+
+```{r, predict on train data, echo = TRUE}
+exp(coef(multinom_model))
+
+#predict of training set
+train$predict = predict(multinom_model, newdata = train, "class")
+tab = table(train$PerfScoreID, train$predict)
+round((sum(diag(tab))/sum(tab))*100,2)
+```
+
+The accuracy is approximately 86%, which isn't that high, but it does make okay predictions it seems like. We will now use this on the test set.
+
+```{r, testing, echo = TRUE}
+test$predict = predict(multinom_model, newdata = test, "class")
+tab = table(test$PerfScoreID, test$predict)
+tab
+#accuracy printed
+round((sum(diag(tab))/sum(tab))*100,2)
+
+```
+The accuracy  is approximately 83%, which isn't good, but it's a very good baseline for prediction performance. In the future, I would like to try this with another model or try to predict some other metric using the data. Overall, this was a good experience for me in learning how to use R. I hope this expierence will be useful in my future studies/career too.
